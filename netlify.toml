@@ -8,7 +8,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  # 26s is the absolute max Netlify allows for synchronous functions
-  # (any plan). Gemini PDF calls usually finish in 8–20s, so this gives
-  # us headroom without blowing past Netlify's hard ceiling.
-  timeout = 26
+# Function timeout is set via `export const maxDuration = 26` inside
+# frontend/app/api/assess/route.ts. @netlify/plugin-nextjs reads that and
+# configures the wrapped function. `timeout` is NOT valid at the top
+# level of [functions]; setting it here causes "must be an object" errors.
