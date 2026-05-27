@@ -188,11 +188,27 @@ export default function Page() {
               <CardContent className="flex items-start gap-3 p-4 text-sm">
                 <AlertCircle className="mt-0.5 h-4 w-4 text-primary" />
                 <div className="text-muted-foreground">
-                  <span className="font-medium text-foreground">Document truncated.</span>{" "}
-                  This PDF has {result._totalPages} pages; only the first portion fit inside
-                  Groq&rsquo;s free-tier per-minute token budget. The assessment reflects the
-                  beginning of the document. For full coverage, upload a shorter PDF or upgrade
-                  Groq plan.
+                  <span className="font-medium text-foreground">Partial coverage.</span>{" "}
+                  {result._totalPages}-page PDF processed across {result._chunksRun} chunk
+                  {result._chunksRun === 1 ? "" : "s"} (
+                  {result._coveredChars && result._docChars
+                    ? `${Math.round((result._coveredChars / result._docChars) * 100)}%`
+                    : "partial"}{" "}
+                  of the text). Add another <code className="rounded bg-secondary px-1 py-0.5 text-xs">GROQ_API_KEY_*</code> env var to cover more
+                  in a single run, or upgrade Groq plan.
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {result._chunksRun && result._chunksRun > 1 && !result._truncated && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="flex items-start gap-3 p-4 text-sm">
+                <Sparkles className="mt-0.5 h-4 w-4 text-primary" />
+                <div className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Full coverage.</span>{" "}
+                  {result._totalPages} pages processed in {result._chunksRun} parallel chunks
+                  across {new Set(result._keyIndices).size} key
+                  {new Set(result._keyIndices).size === 1 ? "" : "s"}.
                 </div>
               </CardContent>
             </Card>

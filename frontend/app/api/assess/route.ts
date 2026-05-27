@@ -1,41 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { extractText, getDocumentProxy } from "unpdf";
-import { AssessmentSchema } from "@/lib/schema";
+import { AssessmentSchema, type AssessmentParsed } from "@/lib/schema";
 import { buildPrompt } from "@/lib/prompt";
+import { chunkText, mergeAssessments } from "@/lib/chunking";
 import type { AssessmentRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 26; // Netlify free-tier ceiling.
+export const maxDuration = 26;
 
-/**
- * Groq model fallback chain — tuned for the free (on-demand) tier.
- *
- * Groq's free tier caps tokens-per-minute (TPM) per model PER KEY:
- *   gpt-oss-120b:        8K TPM  (too tight for PDFs — dropped)
- *   llama-3.3-70b:      12K TPM  (workable as primary)
- *   llama-3.1-8b:       30K TPM  (best safety net — handles larger docs)
- */
 const MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
-/**
- * Cap source text at ~4K input tokens (≈16K chars). Combined with the
- * completion budget below this keeps a single request comfortably inside
- * the 12K TPM limit on llama-3.3-70b. Larger PDFs are truncated and the
- * client is told via the _truncated flag.
- */
-const MAX_DOC_CHARS = 16_000;
+/** Per-chunk character budget. ≈ 4K input tokens; pairs with 4K completion. */
+const CHARS_PER_CHUNK = 16_000;
 
-/**
- * Collect every Groq API key the user has provisioned.
- * - GROQ_API_KEY        (primary, required)
- * - GROQ_API_KEY_2..5   (optional rotation keys)
- *
- * Adding more keys multiplies your free-tier TPM budget linearly. The route
- * rotates through them on TPM rate-limit before falling back to a smaller
- * model — so a 2nd key effectively doubles how many PDFs you can run per
- * minute on the primary high-quality model.
- */
+/** Hard cap on chunks per request to stay inside Netlify's 26s function ceiling. */
+const HARD_CHUNK_CAP = 6;
+
 function collectApiKeys(): string[] {
   const keys: string[] = [];
   const primary = process.env.GROQ_API_KEY?.trim();
@@ -55,13 +36,83 @@ function isRetryableError(err: unknown): boolean {
     m.includes("502") ||
     m.includes("500") ||
     m.includes("429") ||
-    m.includes("413") || // Groq returns 413 for TPM exceedance
+    m.includes("413") ||
     m.includes("rate") ||
     m.includes("token") ||
     m.includes("overloaded") ||
     m.includes("unavailable") ||
     m.includes("timeout")
   );
+}
+
+/**
+ * Run one chunk through the model fallback chain on a single API key.
+ * Returns the parsed, schema-validated assessment, or throws with the most
+ * recent error if every model on this key failed.
+ */
+async function runChunk(args: {
+  chunkText: string;
+  chunkIndex: number;
+  totalChunks: number;
+  totalPages: number;
+  mcqsForChunk: number;
+  apiKey: string;
+  keyIndex: number;
+  systemPrompt: string;
+}): Promise<{ result: AssessmentParsed; model: string; keyIndex: number }> {
+  const groq = new Groq({ apiKey: args.apiKey });
+  const chunkContext =
+    args.totalChunks > 1
+      ? `Part ${args.chunkIndex + 1} of ${args.totalChunks} of a ${args.totalPages}-page document. Generate exactly ${args.mcqsForChunk} MCQs covering THIS section. Do not reference parts you have not seen.`
+      : `${args.totalPages}-page document.`;
+  const userMessage = `${chunkContext}\n\nDocument text:\n\n${args.chunkText}`;
+
+  let lastErr: unknown = null;
+  for (const modelName of MODEL_CHAIN) {
+    try {
+      const completion = await groq.chat.completions.create({
+        model: modelName,
+        messages: [
+          { role: "system", content: args.systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.4,
+        max_completion_tokens: 4096,
+      });
+
+      const content = completion.choices[0]?.message?.content;
+      if (!content) throw new Error("Empty response from Groq.");
+
+      let raw: unknown;
+      try {
+        raw = JSON.parse(content);
+      } catch {
+        throw new Error("Model returned malformed JSON.");
+      }
+
+      const parsed = AssessmentSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error(
+          `Schema validation failed: ${parsed.error.issues
+            .map((i) => i.path.join(".") + ": " + i.message)
+            .join("; ")}`,
+        );
+      }
+
+      return { result: parsed.data, model: modelName, keyIndex: args.keyIndex };
+    } catch (err) {
+      lastErr = err;
+      const message = err instanceof Error ? err.message : String(err);
+      const isSchema = message.includes("Schema") || message.includes("malformed");
+      if (!isRetryableError(err) && !isSchema) {
+        // Hard failure (auth, etc.) — surface immediately.
+        throw err;
+      }
+      // Retryable → try next model on the same key.
+    }
+  }
+  throw lastErr ?? new Error("Unknown chunk failure");
 }
 
 export async function POST(req: NextRequest) {
@@ -108,89 +159,86 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Truncate large docs to stay within the TPM budget.
-  const truncated = docText.length > MAX_DOC_CHARS;
-  const sourceText = truncated ? docText.slice(0, MAX_DOC_CHARS) : docText;
+  // 2. Split into chunks. Cap parallelism at the number of API keys so each
+  //    parallel call has its own TPM bucket and concurrent requests don't
+  //    fight for the same per-key budget.
+  const allChunks = chunkText(docText, CHARS_PER_CHUNK);
+  const maxParallel = Math.min(apiKeys.length, HARD_CHUNK_CAP);
+  const usedChunks = allChunks.slice(0, maxParallel);
+  const truncated = allChunks.length > usedChunks.length;
+  const coveredChars = usedChunks.reduce((n, c) => n + c.length, 0);
+
+  // Distribute the requested question count across the chunks we'll run.
+  const mcqsPerChunk = Math.max(1, Math.ceil(numQuestions / usedChunks.length));
 
   const systemPrompt = buildPrompt({
     bloomLevel,
-    numQuestions,
+    numQuestions: mcqsPerChunk,
     language: language || "auto",
   });
-  const userMessage = `Document (${totalPages} pages${truncated ? `, truncated to first ${MAX_DOC_CHARS} characters` : ""}):\n\n${sourceText}`;
 
-  // 3. Walk (model, key) pairs in priority order. Keys rotate first so a TPM
-  //    limit on key #1 immediately tries key #2 on the SAME (better) model
-  //    before we degrade to a smaller model.
-  const attempted: { model: string; keyIndex: number; error: string }[] = [];
+  // 3. Run all chunks in parallel, each pinned to its own API key.
+  const settled = await Promise.allSettled(
+    usedChunks.map((chunk, i) =>
+      runChunk({
+        chunkText: chunk,
+        chunkIndex: i,
+        totalChunks: usedChunks.length,
+        totalPages,
+        mcqsForChunk: mcqsPerChunk,
+        apiKey: apiKeys[i],
+        keyIndex: i,
+        systemPrompt,
+      }),
+    ),
+  );
 
-  for (const modelName of MODEL_CHAIN) {
-    for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex++) {
-      const groq = new Groq({ apiKey: apiKeys[keyIndex] });
-      try {
-        const completion = await groq.chat.completions.create({
-          model: modelName,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userMessage },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.4,
-          max_completion_tokens: 4096,
-        });
+  const succeeded = settled
+    .map((s, i) => ({ s, i }))
+    .filter(
+      (x): x is { s: PromiseFulfilledResult<Awaited<ReturnType<typeof runChunk>>>; i: number } =>
+        x.s.status === "fulfilled",
+    )
+    .map((x) => x.s.value);
+  const failures = settled
+    .map((s, i) => ({ s, i }))
+    .filter((x): x is { s: PromiseRejectedResult; i: number } => x.s.status === "rejected")
+    .map((x) => ({
+      chunk: x.i,
+      error: x.s.reason instanceof Error ? x.s.reason.message : String(x.s.reason),
+    }));
 
-        const content = completion.choices[0]?.message?.content;
-        if (!content) throw new Error("Empty response from Groq.");
-
-        let raw: unknown;
-        try {
-          raw = JSON.parse(content);
-        } catch {
-          throw new Error("Model returned malformed JSON.");
-        }
-
-        const parsed = AssessmentSchema.safeParse(raw);
-        if (!parsed.success) {
-          throw new Error(
-            `Schema validation failed: ${parsed.error.issues
-              .map((i) => i.path.join(".") + ": " + i.message)
-              .join("; ")}`,
-          );
-        }
-
-        return NextResponse.json({
-          ...parsed.data,
-          _model: modelName,
-          _keyIndex: keyIndex,
-          _totalPages: totalPages,
-          _truncated: truncated,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        attempted.push({ model: modelName, keyIndex, error: message });
-
-        const isSchemaIssue = message.includes("Schema") || message.includes("malformed");
-        if (!isRetryableError(err) && !isSchemaIssue) {
-          // Hard failure (e.g. invalid key) — surface immediately.
-          return NextResponse.json({ error: message, attempted }, { status: 502 });
-        }
-        // Retryable or schema drift — try the next key/model.
-      }
-    }
+  if (succeeded.length === 0) {
+    const firstErr = failures[0]?.error ?? "unknown";
+    const isTpm = /rate_limit_exceeded|tokens per minute|TPM|413/i.test(firstErr);
+    const hint = isTpm
+      ? ` Free-tier TPM was exceeded across all ${apiKeys.length} key${apiKeys.length === 1 ? "" : "s"}. Add another GROQ_API_KEY_${apiKeys.length + 1} env var, upload a smaller PDF, or upgrade to Groq Developer tier.`
+      : " Try again in a minute or upload a smaller PDF.";
+    return NextResponse.json(
+      {
+        error: `All chunks failed (${usedChunks.length} attempted across ${apiKeys.length} key${apiKeys.length === 1 ? "" : "s"}). First error: ${firstErr.slice(0, 400)}.${hint}`,
+        failures,
+      },
+      { status: 503 },
+    );
   }
 
-  // All (model × key) combinations failed. Surface the most informative one.
-  const firstErr = attempted[0]?.error ?? "unknown";
-  const isTpm = /rate_limit_exceeded|tokens per minute|TPM|413/i.test(firstErr);
-  const hint = isTpm
-    ? ` Even with ${apiKeys.length} key${apiKeys.length === 1 ? "" : "s"}, Groq's free-tier TPM was exceeded. Add another GROQ_API_KEY_${apiKeys.length + 1} env var, upload a smaller PDF, or upgrade to Groq Developer tier.`
-    : " Try again in a minute or upload a smaller PDF.";
-
-  return NextResponse.json(
-    {
-      error: `All Groq attempts failed (${attempted.length} tried across ${MODEL_CHAIN.length} models × ${apiKeys.length} keys). First error: ${firstErr.slice(0, 400)}.${hint}`,
-      attempted,
-    },
-    { status: 503 },
+  // 4. Merge whatever survived.
+  const merged = mergeAssessments(
+    succeeded.map((s) => s.result),
+    numQuestions,
   );
+
+  return NextResponse.json({
+    ...merged,
+    _models: succeeded.map((s) => s.model),
+    _keyIndices: succeeded.map((s) => s.keyIndex),
+    _chunksRun: succeeded.length,
+    _chunksTotal: allChunks.length,
+    _totalPages: totalPages,
+    _coveredChars: coveredChars,
+    _docChars: docText.length,
+    _truncated: truncated,
+    _partialFailures: failures.length > 0 ? failures : undefined,
+  });
 }
