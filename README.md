@@ -1,61 +1,80 @@
 # AI Based Assessment
 
-An advanced AI-powered web application built with Gradio that automates the generation of assessments and knowledge graphs from PDF documents.
+Turn any PDF into a structured assessment — summary, Bloom's-taxonomy-aligned multiple-choice questions, and a knowledge graph — in a single Gemini 2.5 Flash call.
+
+Deployable to **Netlify** with one click. No Python, no OCR pipeline, no separate ML servers.
+
+## Stack
+
+| Layer | Tool |
+|---|---|
+| Frontend | Next.js 15 (App Router) + React 19 + Tailwind + shadcn/ui |
+| API | Next.js Route Handler (auto-deployed as Netlify Function via `@netlify/plugin-nextjs`) |
+| LLM | Google **Gemini 2.5 Flash** with `responseSchema` for guaranteed structured JSON |
+| OCR | Native to Gemini (multimodal — scanned PDFs work without Tesseract) |
+| Algorithms | GraphRAG-style entity/relation extraction · Bloom's-conditioned MCQ generation |
+| Graph viz | `react-force-graph-2d` (D3-force, client-side) |
+| Multilingual | Native Gemini (no `deep-translator`, no Noto font downloads) |
+| Hosting | **Netlify** |
 
 ## Features
 
-- **Automated MCQ Generation**: Extracts text from PDF files, summarizes the content using `facebook/bart-large-cnn`, and automatically generates Multiple Choice Questions (MCQs).
-- **Bloom's Taxonomy Support**: Adjusts the generated questions according to different cognitive levels of Bloom's Taxonomy (Remembering, Understanding, Applying, Analyzing).
-- **Knowledge Graph Extraction**: Extracts named entities and their relationships from the text using spaCy and visualizes them as a Knowledge Graph using NetworkX and Matplotlib.
-- **OCR Support**: Falls back to Tesseract OCR when direct text extraction fails, ensuring compatibility with scanned PDFs.
-- **Multilingual Support**: Integrates `deep-translator` and dynamic font downloading (Noto Sans) to support rendering and translating different scripts and languages.
+- **Drag-and-drop PDF upload** (scanned PDFs OK, up to 20 MB)
+- **Bloom's taxonomy** — pick any of 6 cognitive levels (Remember → Create)
+- **Configurable question count** (3–20)
+- **Multilingual output** — match source language or translate to 13+ languages
+- **Interactive MCQs** — click an option, see correctness, reveal explanation
+- **Knowledge graph** — interactive force-directed graph colored by entity type
+- **Structured output** — `responseSchema` guarantees parseable JSON every call
 
-## Installation
-
-### Prerequisites
-- Python 3.8+
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
-- [Poppler](https://poppler.freedesktop.org/)
-
-**For macOS (using Homebrew):**
-```bash
-brew install tesseract poppler
-```
-
-### Setup
-
-1. **Clone the repository:**
-```bash
-git clone https://github.com/your-username/ai-based-assessment.git
-cd ai-based-assessment
-```
-
-2. **Create and activate a virtual environment:**
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-3. **Install the dependencies:**
-```bash
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-```
-
-## Usage
-
-Run the Gradio application:
+## Run locally
 
 ```bash
-python ai_basesd_assessment.py
+cd frontend
+npm install
+cp ../.env.example ../.env.local
+# edit .env.local and paste your GEMINI_API_KEY
+npm run dev
 ```
 
-Open the provided local URL (typically `http://127.0.0.1:7860`) in your web browser to interact with the application. Upload a PDF to get started!
+Open http://localhost:3000.
 
-## How It Works
+Get a free Gemini API key (no credit card) at https://aistudio.google.com/apikey.
 
-1. **Text Extraction**: The app reads the PDF using PyMuPDF (`fitz`). If it encounters images or scanned text, it uses `pdf2image` and `pytesseract` to extract the content.
-2. **Summarization**: The extracted text is truncated and summarized using a Seq2Seq transformer model (`facebook/bart-large-cnn`).
-3. **Keyword Extraction**: Uses RAKE and spaCy to find important keywords and concepts.
-4. **Distractor Generation**: Dynamically creates plausible incorrect answers for MCQs based on the context and topic theme (computing, motivational, leadership).
-5. **Knowledge Graph**: spaCy's Dependency Parser identifies subject-verb-object structures to map relationships between extracted named entities.
+## Deploy to Netlify
+
+1. Push this repo to GitHub.
+2. On Netlify: **Add new site → Import from Git** → select the repo.
+3. Netlify auto-detects `netlify.toml`. No build settings to change.
+4. In **Site settings → Environment variables**, add `GEMINI_API_KEY`.
+5. **Deploy**. Done.
+
+The Next.js Route Handler at `frontend/app/api/assess/route.ts` is automatically deployed as a Netlify Function. PDF processing happens inside it; nothing else runs on the server.
+
+## Project layout
+
+```
+frontend/                    Next.js app (Netlify-deployed)
+  app/
+    page.tsx                 Landing + app UI
+    api/assess/route.ts      Server route → Gemini call
+  components/                shadcn/ui primitives + feature components
+  lib/
+    gemini-schema.ts         responseSchema (summary, mcqs[], graph)
+    prompt.ts                Bloom-aware system prompt
+    types.ts                 Shared TS types
+netlify.toml                 Netlify build + plugin config
+.env.example                 GEMINI_API_KEY template
+```
+
+## How it works
+
+1. The browser reads the PDF and base64-encodes it.
+2. POST `/api/assess` with `{ pdfBase64, bloomLevel, numQuestions, language }`.
+3. The route sends the PDF inline to Gemini 2.5 Flash with a structured `responseSchema`.
+4. Gemini reads the PDF (vision OCR if scanned), then returns one JSON object containing the summary, MCQs, and knowledge graph.
+5. The frontend renders MCQs as interactive cards and the graph with `react-force-graph-2d`.
+
+## Legacy
+
+The original Python/Gradio app (`ai_basesd_assessment.py`, `requirements.txt`, `.venv/`, `NotoSans-*.ttf`) is retained at the repo root for reference. It is no longer used.

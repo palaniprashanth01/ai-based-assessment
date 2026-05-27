@@ -17,3 +17,16 @@ __pycache__/
 # Temp Files
 *.pdf
 *.png
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+
+# Netlify
+.netlify/
+
+# Env
+.env.local
+.env.*.local

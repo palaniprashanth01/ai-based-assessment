@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------- Navigate design tokens ---------- */
+/* HSL channels are used so Tailwind opacity modifiers (bg-primary/50) work.   */
+/* Hex sources from the spec are noted alongside each variable for traceability. */
+
+@layer base {
+  :root {
+    /* surfaces */
+    --surface-base: 0 0% 0%;            /* #000000 — color.surface.base */
+    --surface-raised: 0 0% 6%;          /* near-black panel — derived */
+    --surface-muted: 79 100% 70%;       /* #c7ff69 — color.surface.muted (lime accent) */
+
+    /* text */
+    --text-primary: 0 0% 8%;            /* #141414 — color.text.primary (on lime) */
+    --text-secondary: 45 75% 96%;       /* #fdf9f0 — color.text.secondary (on dark) */
+    --text-muted: 45 20% 70%;           /* derived for low-emphasis */
+
+    /* shadcn semantic mappings — dark-first by default */
+    --background: var(--surface-base);
+    --foreground: var(--text-secondary);
+
+    --card: 0 0% 4%;
+    --card-foreground: var(--text-secondary);
+
+    --primary: var(--surface-muted);       /* lime CTA */
+    --primary-foreground: var(--text-primary);
+
+    --secondary: 0 0% 10%;
+    --secondary-foreground: var(--text-secondary);
+
+    --muted: 0 0% 12%;
+    --muted-foreground: 45 15% 65%;
+
+    --accent: var(--surface-muted);
+    --accent-foreground: var(--text-primary);
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 14%;                  /* rgb(20,20,20) — color.border.strong */
+    --input: 0 0% 14%;
+    --ring: 79 100% 70%;                 /* lime focus ring — WCAG 2.2 AA */
+
+    --radius: 25.15px;                   /* radius.sm */
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv01", "cv11";
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Focus-visible — required by Navigate accessibility rules.
+     Lime ring on dark surface = ~14:1 contrast. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Reduce motion preference — collapse all Navigate motion tokens to instant. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Selection — cream on lime feels off; use lime-on-black instead. */
+::selection {
+  background: hsl(var(--surface-muted));
+  color: hsl(var(--text-primary));
+}
