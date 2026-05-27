@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
     model: "gemini-2.5-flash",
     generationConfig: {
       responseMimeType: "application/json",
-      // @ts-expect-error — SDK type lags the runtime schema option
       responseSchema: ASSESSMENT_SCHEMA,
       temperature: 0.4,
     },
