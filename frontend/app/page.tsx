@@ -14,7 +14,17 @@ import { SummaryPanel } from "@/components/summary-panel";
 import { MCQCard } from "@/components/mcq-card";
 import { KnowledgeGraph } from "@/components/knowledge-graph";
 import { ExportMenu } from "@/components/export-menu";
+import { ProgressSteps, type ProgressStep } from "@/components/progress-steps";
+import { readPageCount } from "@/lib/pdf-meta";
 import type { AssessmentResponse, BloomLevel } from "@/lib/types";
+
+/**
+ * Rough estimate: each parallel Groq chunk covers ~4 pages of a typical
+ * dense PDF. Conservative — used only for the up-front coverage hint.
+ */
+const PAGES_PER_CHUNK = 4;
+/** Matches HARD_CHUNK_CAP in the route handler. */
+const MAX_CHUNKS = 6;
 
 async function fileToBase64(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
@@ -35,32 +45,69 @@ export default function Page() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<AssessmentResponse | null>(null);
+  const [pageCount, setPageCount] = React.useState<number | null>(null);
+  const [step, setStep] = React.useState<ProgressStep>("idle");
   const resultsRef = React.useRef<HTMLDivElement>(null);
+
+  // Read page count client-side when a new file is picked.
+  React.useEffect(() => {
+    if (!file) {
+      setPageCount(null);
+      return;
+    }
+    let cancelled = false;
+    readPageCount(file).then((n) => {
+      if (!cancelled) setPageCount(n);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  // The route caps parallel chunks at HARD_CHUNK_CAP (6), so estimated
+  // coverage is bounded by both the user's chunk budget and that cap.
+  // We can't read env vars from the browser, so we display a generic
+  // estimate; the precise value lands in the post-generation banner.
+  const estimatedCoverage = MAX_CHUNKS * PAGES_PER_CHUNK;
 
   const onGenerate = async () => {
     if (!file) return;
     setLoading(true);
     setError(null);
     setResult(null);
+    setStep("encoding");
     try {
       const pdfBase64 = await fileToBase64(file);
-      const res = await fetch("/api/assess", {
+      setStep("uploading");
+      // Brief delay between encoding/uploading so the visual transition reads.
+      const requestPromise = fetch("/api/assess", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfBase64, bloomLevel: bloom, numQuestions, language }),
       });
+      // We can't observe server-side phases from the browser without SSE, so
+      // approximate the back-end pipeline with timed transitions. The actual
+      // request races these — whichever finishes first wins. The point is to
+      // give the user *some* sense of progress during the 5-10s wait.
+      const phaseTimers: ReturnType<typeof setTimeout>[] = [
+        setTimeout(() => setStep("parsing"), 400),
+        setTimeout(() => setStep("generating"), 1500),
+        setTimeout(() => setStep("merging"), 8000),
+      ];
+      const res = await requestPromise.finally(() => phaseTimers.forEach(clearTimeout));
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error ?? `Request failed (${res.status})`);
       }
       const json = (await res.json()) as AssessmentResponse;
+      setStep("done");
       setResult(json);
-      // Scroll results into view — fast motion token.
       requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setLoading(false);
+      setStep("idle");
     }
   };
 
@@ -103,7 +150,13 @@ export default function Page() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <PdfDropzone file={file} onChange={setFile} disabled={loading} />
+            <PdfDropzone
+              file={file}
+              onChange={setFile}
+              disabled={loading}
+              pageCount={pageCount}
+              estimatedCoverage={estimatedCoverage}
+            />
           </CardContent>
         </Card>
 
@@ -172,13 +225,16 @@ export default function Page() {
         </Card>
       )}
 
-      {/* ───── Loading skeletons ───── */}
+      {/* ───── Progress + skeletons (only while waiting on the API) ───── */}
       {loading && (
-        <div className="mt-10 grid gap-6 lg:grid-cols-2">
-          <Skeleton className="h-64 rounded-sm" />
-          <Skeleton className="h-64 rounded-sm" />
-          <Skeleton className="h-96 rounded-sm lg:col-span-2" />
-        </div>
+        <>
+          <ProgressSteps step={step} />
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <Skeleton className="h-64 rounded-sm" />
+            <Skeleton className="h-64 rounded-sm" />
+            <Skeleton className="h-96 rounded-sm lg:col-span-2" />
+          </div>
+        </>
       )}
 
       {/* ───── Results ───── */}

@@ -8,6 +8,10 @@ type Props = {
   file: File | null;
   onChange: (file: File | null) => void;
   disabled?: boolean;
+  /** Number of pages detected client-side after the user picks a file. */
+  pageCount?: number | null;
+  /** Estimated number of pages that will be assessed (chunks × ~4 pages each). */
+  estimatedCoverage?: number;
 };
 
 /**
@@ -19,7 +23,7 @@ type Props = {
  *  - States: default, hover, focus-visible (lime ring), active drag, disabled,
  *    error (rejected file via alert — TODO inline message).
  */
-export function PdfDropzone({ file, onChange, disabled }: Props) {
+export function PdfDropzone({ file, onChange, disabled, pageCount, estimatedCoverage }: Props) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = React.useState(false);
 
@@ -71,27 +75,45 @@ export function PdfDropzone({ file, onChange, disabled }: Props) {
         onChange={(e) => pick(e.target.files?.[0] ?? null)}
       />
       {file ? (
-        <div className="flex w-full items-center justify-between gap-3 rounded-sm border border-border bg-secondary/40 p-3 text-left">
-          <div className="rounded-full bg-primary p-2">
-            <FileText className="h-4 w-4 text-primary-foreground" />
+        <div className="flex w-full flex-col gap-2 text-left">
+          <div className="flex items-center justify-between gap-3 rounded-sm border border-border bg-secondary/40 p-3">
+            <div className="rounded-full bg-primary p-2">
+              <FileText className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <div className="flex-1 truncate">
+              <div className="truncate text-base font-medium">{file.name}</div>
+              <div className="text-sm text-muted-foreground">
+                {(file.size / 1024 / 1024).toFixed(2)} MB
+                {pageCount !== null && pageCount !== undefined && ` · ${pageCount} pages`}
+              </div>
+            </div>
+            {!disabled && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Remove file"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(null);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
-          <div className="flex-1 truncate">
-            <div className="truncate text-base font-medium">{file.name}</div>
-            <div className="text-sm text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
-          </div>
-          {!disabled && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Remove file"
-              onClick={(e) => {
-                e.stopPropagation();
-                onChange(null);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+          {pageCount && estimatedCoverage !== undefined && pageCount > estimatedCoverage && (
+            <div className="rounded-sm border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Heads-up:</span> only the first
+              ~{estimatedCoverage} of {pageCount} pages will be assessed on your current Groq
+              free-tier capacity. Add a <code className="rounded bg-secondary px-1 py-0.5">GROQ_API_KEY_*</code> env var to cover more.
+            </div>
+          )}
+          {pageCount && estimatedCoverage !== undefined && pageCount <= estimatedCoverage && (
+            <div className="rounded-sm border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Full coverage.</span> All {pageCount}
+              {" "}pages fit your current capacity.
+            </div>
           )}
         </div>
       ) : (
