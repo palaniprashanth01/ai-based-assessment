@@ -13,6 +13,7 @@ import { LanguageSelector } from "@/components/language-selector";
 import { SummaryPanel } from "@/components/summary-panel";
 import { MCQCard } from "@/components/mcq-card";
 import { KnowledgeGraph } from "@/components/knowledge-graph";
+import { ExportMenu } from "@/components/export-menu";
 import type { AssessmentResponse, BloomLevel } from "@/lib/types";
 
 async function fileToBase64(file: File): Promise<string> {
@@ -217,13 +218,16 @@ export default function Page() {
           <SummaryPanel summary={result.summary} language={result.detectedLanguage} />
 
           <div>
-            <div className="mb-4 flex items-end justify-between">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <h2 className="text-2xl font-medium tracking-tight">
                 {result.mcqs.length} questions
               </h2>
-              <span className="rounded-full border border-border px-2.5 py-0.5 text-xs capitalize text-muted-foreground">
-                Bloom · {bloom}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="rounded-full border border-border px-2.5 py-0.5 text-xs capitalize text-muted-foreground">
+                  Bloom · {bloom}
+                </span>
+                <ExportMenu result={result} sourceName={file?.name} />
+              </div>
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {result.mcqs.map((m, i) => (
