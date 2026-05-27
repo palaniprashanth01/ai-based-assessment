@@ -10,19 +10,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-select": "^2.1.2",
     "@radix-ui/react-slider": "^1.2.1",
     "@radix-ui/react-slot": "^1.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "groq-sdk": "^0.12.0",
     "lucide-react": "^0.460.0",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-force-graph-2d": "^1.27.0",
     "tailwind-merge": "^2.5.5",
+    "unpdf": "^0.12.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {

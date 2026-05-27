@@ -23,6 +23,7 @@ node_modules/
 .next/
 out/
 .turbo/
+*.tsbuildinfo
 
 # Netlify
 .netlify/

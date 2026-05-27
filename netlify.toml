@@ -8,7 +8,7 @@
 
 [functions]
   node_bundler = "esbuild"
-
-[functions."app/api/assess/route"]
-  # Gemini PDF calls can take 20-50s on large docs.
-  timeout = 60
+  # 26s is the absolute max Netlify allows for synchronous functions
+  # (any plan). Gemini PDF calls usually finish in 8–20s, so this gives
+  # us headroom without blowing past Netlify's hard ceiling.
+  timeout = 26
