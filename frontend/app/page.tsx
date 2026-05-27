@@ -183,6 +183,21 @@ export default function Page() {
       {/* ───── Results ───── */}
       {result && (
         <section ref={resultsRef} className="mt-14 space-y-6 scroll-mt-12">
+          {result._truncated && (
+            <Card className="border-primary/40 bg-primary/5">
+              <CardContent className="flex items-start gap-3 p-4 text-sm">
+                <AlertCircle className="mt-0.5 h-4 w-4 text-primary" />
+                <div className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Document truncated.</span>{" "}
+                  This PDF has {result._totalPages} pages; only the first portion fit inside
+                  Groq&rsquo;s free-tier per-minute token budget. The assessment reflects the
+                  beginning of the document. For full coverage, upload a shorter PDF or upgrade
+                  Groq plan.
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <SummaryPanel summary={result.summary} language={result.detectedLanguage} />
 
           <div>

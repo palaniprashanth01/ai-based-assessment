@@ -12,7 +12,8 @@ Deployable to **Netlify** with one click. No Python, no ML servers, no GPU bills
 | API | Next.js Route Handler (auto-deployed as Netlify Function via `@netlify/plugin-nextjs`) |
 | PDF extraction | `unpdf` (serverless-friendly, no native deps) |
 | LLM | **Groq `openai/gpt-oss-120b`** (120B params, ~500 tps, reasoning-capable) with `response_format: json_object` + Zod schema validation |
-| Fallback chain | `openai/gpt-oss-120b` → `llama-3.3-70b-versatile` on 429/503 |
+| Fallback chain | `llama-3.3-70b-versatile` → `llama-3.1-8b-instant` on 429/503/TPM |
+| Multi-key rotation | Set `GROQ_API_KEY_2..5` to multiply free-tier TPM linearly |
 | Algorithms | GraphRAG-style entity/relation extraction · Bloom's-conditioned MCQ generation |
 | Graph viz | `react-force-graph-2d` (D3-force, client-side) |
 | Multilingual | gpt-oss-120b reads/writes 13+ languages natively |
@@ -52,6 +53,7 @@ Get a free Groq API key (no credit card) at https://console.groq.com/keys.
 2. On Netlify: **Add new site → Import from Git** → select the repo.
 3. Netlify auto-detects `netlify.toml`. No build settings to change.
 4. In **Site settings → Environment variables**, add `GROQ_API_KEY`.
+   Optionally add `GROQ_API_KEY_2`, `GROQ_API_KEY_3`, etc. — the function rotates through them on TPM rate limits, effectively multiplying your free-tier throughput.
 5. **Deploy**. Done.
 
 The Next.js Route Handler at `frontend/app/api/assess/route.ts` is automatically deployed as a Netlify Function. PDF parsing + Groq call happen inside it; nothing else runs on the server.

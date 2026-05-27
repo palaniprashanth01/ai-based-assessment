@@ -34,6 +34,9 @@ export type AssessmentResponse = {
   mcqs: MCQ[];
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
   detectedLanguage?: string;
+  _model?: string;
+  _totalPages?: number;
+  _truncated?: boolean;
 };
 
 export type AssessmentRequest = {
