@@ -1,6 +1,6 @@
 # AI Based Assessment
 
-Turn any PDF into a structured assessment — summary, Bloom's-taxonomy-aligned multiple-choice questions, and a knowledge graph — in **2–5 seconds** via Groq Llama-3.3-70B.
+Turn any PDF into a structured assessment — summary, Bloom's-taxonomy-aligned multiple-choice questions, and a knowledge graph — in **2–5 seconds** via Groq `openai/gpt-oss-120b` (built-in reasoning).
 
 Deployable to **Netlify** with one click. No Python, no ML servers, no GPU bills.
 
@@ -11,11 +11,11 @@ Deployable to **Netlify** with one click. No Python, no ML servers, no GPU bills
 | Frontend | Next.js 15 (App Router) + React 19 + Tailwind + shadcn/ui |
 | API | Next.js Route Handler (auto-deployed as Netlify Function via `@netlify/plugin-nextjs`) |
 | PDF extraction | `unpdf` (serverless-friendly, no native deps) |
-| LLM | **Groq Llama-3.3-70B-versatile** with `response_format: json_object` + Zod schema validation |
-| Fallback chain | `llama-3.3-70b-versatile` → `llama-3.1-8b-instant` on 429/503 |
+| LLM | **Groq `openai/gpt-oss-120b`** (120B params, ~500 tps, reasoning-capable) with `response_format: json_object` + Zod schema validation |
+| Fallback chain | `openai/gpt-oss-120b` → `llama-3.3-70b-versatile` on 429/503 |
 | Algorithms | GraphRAG-style entity/relation extraction · Bloom's-conditioned MCQ generation |
 | Graph viz | `react-force-graph-2d` (D3-force, client-side) |
-| Multilingual | Llama-3.3 reads/writes 13+ languages natively |
+| Multilingual | gpt-oss-120b reads/writes 13+ languages natively |
 | Hosting | **Netlify** |
 
 ## Features
@@ -77,7 +77,7 @@ netlify.toml                 Netlify build + plugin config
 1. The browser reads the PDF and base64-encodes it.
 2. POST `/api/assess` with `{ pdfBase64, bloomLevel, numQuestions, language }`.
 3. The route uses `unpdf` to extract text from the PDF (no OCR — text-based PDFs only).
-4. The text is sent to Groq Llama-3.3-70B with `response_format: json_object`.
+4. The text is sent to Groq `openai/gpt-oss-120b` with `response_format: json_object`.
 5. The response is validated with Zod, then returned as one JSON object containing summary, MCQs, and knowledge graph.
 6. The frontend renders MCQs as interactive cards and the graph with `react-force-graph-2d`.
 

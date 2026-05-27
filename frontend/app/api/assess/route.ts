@@ -9,13 +9,17 @@ export const runtime = "nodejs";
 export const maxDuration = 26; // Netlify free-tier ceiling.
 
 /**
- * Groq model fallback chain. Llama-3.3-70B is the highest-quality option and
- * usually returns in 2–5s for a typical PDF. If it's rate-limited, fall back
- * to llama-3.1-8b-instant — same JSON-mode support, ~2× faster, lower quality.
+ * Groq model fallback chain.
+ *  - gpt-oss-120b: 120B params, 500 tps, built-in reasoning. Best quality
+ *    available on Groq for structured reasoning + multi-step extraction.
+ *  - llama-3.3-70b-versatile: 70B params, 280 tps. Different model family,
+ *    used as a fault-isolated fallback if gpt-oss returns 429/503 or drifts
+ *    off-schema.
+ * Both support response_format: json_object and 131K context windows.
  */
-const MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+const MODEL_CHAIN = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"];
 
-/** Llama-3.3-70b has a 131K context window; cap source text generously. */
+/** All models share 131K context; cap source text at ~22K tokens of input. */
 const MAX_DOC_CHARS = 90_000;
 
 function isRetryableError(err: unknown): boolean {
@@ -103,7 +107,9 @@ export async function POST(req: NextRequest) {
         ],
         response_format: { type: "json_object" },
         temperature: 0.4,
-        max_completion_tokens: 8000,
+        // gpt-oss-120b spends some of this budget on internal reasoning;
+        // 16K leaves comfortable room for a 20-MCQ assessment + 25-node graph.
+        max_completion_tokens: 16000,
       });
 
       const content = completion.choices[0]?.message?.content;
